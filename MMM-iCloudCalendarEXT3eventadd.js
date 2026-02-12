@@ -29,6 +29,7 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     const wrap = document.createElement("div")
     wrap.className = "icloudEventAddRoot"
     wrap.style.display = this._visible ? "block" : "none"
+    wrap.style.pointerEvents = this._visible ? "auto" : "none"
 
     const overlay = document.createElement("div")
     overlay.className = "icloudOverlay"
@@ -287,3 +288,4 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     // EVENT_OP_FAILED
   }
 })
+
