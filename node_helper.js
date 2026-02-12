@@ -11,13 +11,6 @@ module.exports = NodeHelper.create({
 
   async socketNotificationReceived(notification, payload) {
     try {
-      if (notification === "CE3_LOOKUP_EVENT") {
-        // Backward compatible, but prefer UID-based lookups now
-        const res = await this.lookupEvent(payload);
-        this.sendSocketNotification("CE3_LOOKUP_EVENT_RESULT", res);
-        return;
-      }
-
       if (notification === "ADD_CALENDAR_EVENT") {
         const res = await this.addEvent(payload);
         this.sendSocketNotification("EVENT_ADD_SUCCESS", res);
@@ -37,24 +30,26 @@ module.exports = NodeHelper.create({
       }
     } catch (err) {
       console.error("[ICLOUD-ADD] error:", err);
-      const msg = (err && err.message) ? err.message : String(err);
-      this.sendSocketNotification("EVENT_OP_FAILED", { notification, error: msg });
+      this.sendSocketNotification("EVENT_OP_FAILED", {
+        notification,
+        error: err?.message ? err.message : String(err)
+      });
     }
   },
 
   getCreds(prefix) {
-    // You used `${prefix}USERNAME`, `${prefix}PASSWORD`
-    // With envPrefix "ICLOUD_" this becomes "ICLOUD_USERNAME" etc
     return {
-      username: process.env[`${prefix}USERNAME`] || process.env[`${prefix}USERNAME`.replace(/__+/g, "_")] || process.env[`${prefix}USERNAME`],
-      password: process.env[`${prefix}PASSWORD`] || process.env[`${prefix}PASSWORD`.replace(/__+/g, "_")] || process.env[`${prefix}PASSWORD`]
+      username: process.env[`${prefix}USERNAME`],
+      password: process.env[`${prefix}PASSWORD`]
     };
   },
 
   async getAccount(cfg) {
     const { username, password } = this.getCreds(cfg.envPrefix);
     if (!username || !password) {
-      throw new Error(`Missing credentials for envPrefix=${cfg.envPrefix}. Expected env vars like ${cfg.envPrefix}USERNAME and ${cfg.envPrefix}PASSWORD`);
+      throw new Error(
+        `Missing credentials. Expected env vars: ${cfg.envPrefix}USERNAME and ${cfg.envPrefix}PASSWORD`
+      );
     }
 
     const xhr = new dav.transport.Basic({ username, password });
@@ -72,10 +67,8 @@ module.exports = NodeHelper.create({
     return { xhr, cal };
   },
 
-  // ---------- helpers ----------
   _icsEscape(text) {
     if (text === null || text === undefined) return "";
-    // Minimal escape for ICS text
     return String(text)
       .replace(/\\/g, "\\\\")
       .replace(/\n/g, "\\n")
@@ -84,44 +77,34 @@ module.exports = NodeHelper.create({
   },
 
   _formatDateUTC(dt) {
-    // dt is Date
     const pad = (n) => String(n).padStart(2, "0");
     return `${dt.getUTCFullYear()}${pad(dt.getUTCMonth() + 1)}${pad(dt.getUTCDate())}T${pad(dt.getUTCHours())}${pad(dt.getUTCMinutes())}${pad(dt.getUTCSeconds())}Z`;
   },
 
   _extractLineValue(ics, key) {
-    // Match KEY:value up to end of line, tolerate folded lines later if needed
     const re = new RegExp(`^${key}:(.*)$`, "m");
     const m = ics.match(re);
     return m ? m[1].trim() : null;
   },
 
   async _findObjectByUid({ xhr, cal, uid }) {
-    if (!uid) throw new Error("Missing uid");
-
     const filters = [{
       type: "comp-filter",
       attrs: { name: "VCALENDAR" },
-      children: [{
-        type: "comp-filter",
-        attrs: { name: "VEVENT" }
-      }]
+      children: [{ type: "comp-filter", attrs: { name: "VEVENT" } }]
     }];
 
     const objects = await dav.listCalendarObjects(cal, { xhr, filters });
 
-    // Find UID:... line exact-ish, avoid substring collisions
     const needle = `UID:${uid}`;
     const match = objects.find(o => (o.calendarData || "").includes(needle));
-
     if (!match) return null;
 
-    const foundUid = this._extractLineValue(match.calendarData, "UID");
     return {
-      uid: foundUid || uid,
-      href: match.url,
+      url: match.url,
       etag: match.etag,
-      calendarData: match.calendarData
+      calendarData: match.calendarData,
+      uid: this._extractLineValue(match.calendarData, "UID") || uid
     };
   },
 
@@ -130,26 +113,21 @@ module.exports = NodeHelper.create({
     const dtstamp = this._formatDateUTC(now);
     const dtStart = new Date(Number(startDate));
     const dtEnd = new Date(Number(endDate));
+    const safeUid = uid || (crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString("hex"));
 
-    const safeUid = uid || crypto.randomUUID();
-
-    // For all-day, use DATE values and DTEND as the day after (exclusive)
     let dtstartLine = "";
     let dtendLine = "";
 
     if (allDay) {
-      const s = new Date(Date.UTC(dtStart.getFullYear(), dtStart.getMonth(), dtStart.getDate(), 0, 0, 0));
-      const e = new Date(Date.UTC(dtEnd.getFullYear(), dtEnd.getMonth(), dtEnd.getDate(), 0, 0, 0));
-      // Ensure end is exclusive next day for all-day, many clients expect that
-      const endExclusive = new Date(e.getTime() + 24 * 60 * 60 * 1000);
+      const pad = (n) => String(n).padStart(2, "0");
+      const ymd = (d) => `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}`;
 
-      const ymd = (d) => {
-        const pad = (n) => String(n).padStart(2, "0");
-        return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}`;
-      };
+      const s = new Date(Date.UTC(dtStart.getFullYear(), dtStart.getMonth(), dtStart.getDate(), 0, 0, 0));
+      const e0 = new Date(Date.UTC(dtEnd.getFullYear(), dtEnd.getMonth(), dtEnd.getDate(), 0, 0, 0));
+      const e = new Date(e0.getTime() + 24 * 60 * 60 * 1000); // exclusive
 
       dtstartLine = `DTSTART;VALUE=DATE:${ymd(s)}`;
-      dtendLine = `DTEND;VALUE=DATE:${ymd(endExclusive)}`;
+      dtendLine = `DTEND;VALUE=DATE:${ymd(e)}`;
     } else {
       dtstartLine = `DTSTART:${this._formatDateUTC(dtStart)}`;
       dtendLine = `DTEND:${this._formatDateUTC(dtEnd)}`;
@@ -165,7 +143,7 @@ module.exports = NodeHelper.create({
       `DTSTAMP:${dtstamp}`,
       dtstartLine,
       dtendLine,
-      `SUMMARY:${this._icsEscape(title)}`,
+      `SUMMARY:${this._icsEscape(title)}`
     ];
 
     if (location) lines.push(`LOCATION:${this._icsEscape(location)}`);
@@ -176,42 +154,6 @@ module.exports = NodeHelper.create({
     return { uid: safeUid, ics: lines.join("\r\n") + "\r\n" };
   },
 
-  // ---------- existing lookup, but improve it ----------
-  async lookupEvent(payload) {
-    const { xhr, cal } = await this.getAccount(payload.caldav);
-
-    // Preferred: UID lookup
-    if (payload.uid) {
-      const obj = await this._findObjectByUid({ xhr, cal, uid: payload.uid });
-      if (!obj) return { found: false };
-      return { found: true, event: { uid: obj.uid, href: obj.href, etag: obj.etag } };
-    }
-
-    // Backward compatible fallback: title match (fragile)
-    const filters = [{
-      type: "comp-filter",
-      attrs: { name: "VCALENDAR" },
-      children: [{ type: "comp-filter", attrs: { name: "VEVENT" } }]
-    }];
-
-    const objects = await dav.listCalendarObjects(cal, { xhr, filters });
-    const match = objects.find(o => (o.calendarData || "").includes(`SUMMARY:${payload.title}`));
-    if (!match) return { found: false };
-
-    const uid = this._extractLineValue(match.calendarData, "UID");
-
-    return {
-      found: true,
-      event: {
-        uid,
-        href: match.url,
-        etag: match.etag,
-        title: payload.title
-      }
-    };
-  },
-
-  // ---------- add ----------
   async addEvent(payload) {
     const { xhr, cal } = await this.getAccount(payload.caldav);
 
@@ -225,38 +167,25 @@ module.exports = NodeHelper.create({
       description: payload.description || ""
     });
 
-    // Create new object URL
-    // Many CalDAV servers accept PUT to a new .ics resource under the calendar collection URL.
-    // dav library usually exposes `dav.createCalendarObject` in some versions, but not all.
-    // We'll do a raw PUT via xhr if available.
-    const collectionUrl = cal.url || cal.href || cal.homeUrl || cal._url;
-    if (!collectionUrl) throw new Error("Calendar collection URL not found on cal object");
-
-    const newHref = `${collectionUrl.replace(/\/?$/, "/")}${uid}.ics`;
-
-    await xhr.send(new dav.Request({
-      method: "PUT",
-      url: newHref,
-      headers: {
-        "Content-Type": "text/calendar; charset=utf-8"
-      },
+    // Use the supported dav API
+    await dav.createCalendarObject(cal, {
+      xhr,
+      filename: `${uid}.ics`,
       data: ics
-    }));
+    });
 
-    return { ok: true, uid, href: newHref };
+    return { ok: true, uid };
   },
 
-  // ---------- update ----------
   async updateEvent(payload) {
     const { xhr, cal } = await this.getAccount(payload.caldav);
-    const uid = payload.uid;
-    if (!uid) throw new Error("UPDATE_CALENDAR_EVENT requires uid");
+    if (!payload.uid) throw new Error("UPDATE requires uid");
 
-    const obj = await this._findObjectByUid({ xhr, cal, uid });
-    if (!obj) throw new Error(`Event not found for uid=${uid}`);
+    const found = await this._findObjectByUid({ xhr, cal, uid: payload.uid });
+    if (!found) throw new Error(`Event not found: uid=${payload.uid}`);
 
     const { ics } = this._buildVeventIcs({
-      uid,
+      uid: found.uid,
       title: payload.title,
       startDate: payload.startDate,
       endDate: payload.endDate,
@@ -265,37 +194,32 @@ module.exports = NodeHelper.create({
       description: payload.description || ""
     });
 
-    await xhr.send(new dav.Request({
-      method: "PUT",
-      url: obj.href,
-      headers: {
-        "Content-Type": "text/calendar; charset=utf-8",
-        // conflict safety
-        "If-Match": obj.etag
-      },
-      data: ics
-    }));
+    // listCalendarObjects returns a CalendarObject shape, update uses its url/etag/calendarData
+    const calendarObject = new dav.CalendarObject({
+      url: found.url,
+      etag: found.etag,
+      calendarData: ics
+    });
 
-    return { ok: true, uid, href: obj.href };
+    await dav.updateCalendarObject(calendarObject, { xhr });
+
+    return { ok: true, uid: found.uid };
   },
 
-  // ---------- delete ----------
   async deleteEvent(payload) {
     const { xhr, cal } = await this.getAccount(payload.caldav);
-    const uid = payload.uid;
-    if (!uid) throw new Error("DELETE_CALENDAR_EVENT requires uid");
+    if (!payload.uid) throw new Error("DELETE requires uid");
 
-    const obj = await this._findObjectByUid({ xhr, cal, uid });
-    if (!obj) return { ok: true, uid, deleted: false, reason: "not_found" };
+    const found = await this._findObjectByUid({ xhr, cal, uid: payload.uid });
+    if (!found) return { ok: true, uid: payload.uid, deleted: false, reason: "not_found" };
 
-    await xhr.send(new dav.Request({
-      method: "DELETE",
-      url: obj.href,
-      headers: {
-        "If-Match": obj.etag
-      }
-    }));
+    const calendarObject = new dav.CalendarObject({
+      url: found.url,
+      etag: found.etag
+    });
 
-    return { ok: true, uid, deleted: true };
+    await dav.deleteCalendarObject(calendarObject, { xhr });
+
+    return { ok: true, uid: found.uid, deleted: true };
   }
 });
