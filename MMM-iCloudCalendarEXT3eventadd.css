@@ -1,0 +1,78 @@
+.icloudEventAddRoot {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+}
+
+.icloudOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icloudModal {
+  width: 70%;
+  max-width: 900px;
+  background: #fff;
+  color: #111;
+  border-radius: 12px;
+  padding: 18px;
+}
+
+.icloudTitle {
+  font-size: 28px;
+  margin-bottom: 10px;
+}
+
+.icloudRow {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 10px;
+}
+
+.icloudRow label {
+  font-size: 18px;
+  margin-bottom: 6px;
+}
+
+.icloudRow input,
+.icloudRow textarea {
+  font-size: 18px;
+  padding: 10px;
+}
+
+.icloudRow textarea {
+  min-height: 110px;
+}
+
+.icloudButtons {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+.icloudBtn {
+  font-size: 18px;
+  padding: 10px 16px;
+}
+
+.icloudBtn.save {
+  background: #2d6cdf;
+  color: white;
+  border: 0;
+}
+
+.icloudBtn.cancel {
+  background: transparent;
+}
+
+.icloudBtn.delete {
+  background: #c0392b;
+  color: white;
+  border: 0;
+  margin-right: auto;
+}
