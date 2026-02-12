@@ -8,142 +8,115 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
       calendarDisplayName: "Family",
       providerIcsUrl: "http://127.0.0.1:8888/CALDAV/ICLOUD_Family.ics"
     },
-    // These selectors vary by CalendarExt3 skin/version, so we include a few common ones.
     selectors: {
+      root: ".MMM-CalendarExt3",
       dayCell: ".cell[data-date]",
-      event: ".cell .event, .cell .eventItem, .cell .ce3-event"
+      event: ".event, .eventItem, .ce3-event"
     },
     debug: true
   },
 
   start() {
-    this.modalMode = "ADD";
-    this.editContext = null;
-
     Log.info("[ICLOUD-ADD] module started");
-
-    // Re-attach handlers after CalendarExt3 renders/updates
+    this._observer = null;
     this._attachTimer = null;
   },
 
-  getStyles() {
-    return [];
-  },
-
   getDom() {
-    // This module is UI-less, it hooks clicks only.
-    const wrapper = document.createElement("div");
-    wrapper.style.display = "none";
-    return wrapper;
+    const w = document.createElement("div");
+    w.style.display = "none";
+    return w;
   },
 
   notificationReceived(notification) {
     if (notification === "DOM_OBJECTS_CREATED" || notification === "CALENDAR_EXT3_RENDERED") {
-      this.deferAttach();
+      this.deferHook();
     }
   },
 
-  deferAttach() {
+  deferHook() {
     if (this._attachTimer) clearTimeout(this._attachTimer);
-    this._attachTimer = setTimeout(() => this.attachCalendarClickHandlers(), 500);
+    this._attachTimer = setTimeout(() => this.hookCalendarRoot(), 300);
   },
 
-  attachCalendarClickHandlers() {
-    const dayCells = document.querySelectorAll(this.config.selectors.dayCell);
-    if (this.config.debug) {
-      console.log("[ICLOUD-ADD] attachCalendarClickHandlers, dayCells:", dayCells.length);
+  hookCalendarRoot() {
+    const root = document.querySelector(this.config.selectors.root);
+    if (!root) {
+      if (this.config.debug) console.log("[ICLOUD-ADD] root not found yet");
+      return;
     }
 
-    dayCells.forEach((cell) => {
-      if (cell.dataset.icloudAddBound === "1") return;
-      cell.dataset.icloudAddBound = "1";
+    if (this._observer) return;
 
-      // Capture phase so we run before CalendarExt3 handlers
-      cell.addEventListener(
-        "click",
-        (e) => {
-          // If the click is on an event element, let the event handler handle it.
-          if (e.target.closest(this.config.selectors.event)) return;
+    // Capture early events at the CalendarExt3 root so we win the race.
+    const handler = (e) => this.handleAnyTap(e);
 
-          // Stop CalendarExt3 from consuming the click first
-          e.preventDefault();
-          e.stopPropagation();
+    // Use multiple event types because touch devices vary.
+    root.addEventListener("pointerdown", handler, true);
+    root.addEventListener("pointerup", handler, true);
+    root.addEventListener("touchstart", handler, true);
+    root.addEventListener("touchend", handler, true);
+    root.addEventListener("click", handler, true);
 
-          const iso = this.toISO(cell.getAttribute("data-date"));
-
-          // Only add if no events exist in that day cell
-          const hasEvents = !!cell.querySelector(this.config.selectors.event);
-          if (hasEvents) {
-            if (this.config.debug) console.log("[ICLOUD-ADD] day click ignored (has events)", iso);
-            return;
-          }
-
-          Log.info(`[ICLOUD-ADD] empty day click -> add (${iso})`);
-          console.log("[ICLOUD-ADD] empty day click -> add", iso);
-
-          // Temporary proof UI
-          alert(`[ICLOUD-ADD] Add event for ${iso}`);
-
-          // Later we’ll open your real modal here
-          // this.openAddModal(iso);
-        },
-        true
-      );
+    // Re-hook if CalendarExt3 rerenders
+    this._observer = new MutationObserver(() => {
+      // nothing needed, root handler catches everything
     });
+    this._observer.observe(root, { childList: true, subtree: true });
 
-    const events = document.querySelectorAll(this.config.selectors.event);
-    if (this.config.debug) console.log("[ICLOUD-ADD] attachCalendarClickHandlers, events:", events.length);
+    if (this.config.debug) console.log("[ICLOUD-ADD] root handlers attached");
+  },
 
-    events.forEach((ev) => {
-      if (ev.dataset.icloudAddEventBound === "1") return;
-      ev.dataset.icloudAddEventBound = "1";
+  handleAnyTap(e) {
+    const root = document.querySelector(this.config.selectors.root);
+    if (!root) return;
 
-      ev.addEventListener(
-        "click",
-        (e) => {
-          // Stop CalendarExt3 from also handling the click
-          e.preventDefault();
-          e.stopPropagation();
+    const dayCell = e.target.closest(this.config.selectors.dayCell);
+    if (!dayCell) return; // not a day cell interaction
 
-          const cell = ev.closest(this.config.selectors.dayCell);
-          if (!cell) return;
+    const eventEl = e.target.closest(this.config.selectors.event);
+    const iso = this.toISO(dayCell.getAttribute("data-date"));
 
-          const iso = this.toISO(cell.getAttribute("data-date"));
-          const title = (ev.textContent || "").trim();
+    // We are now taking over this interaction.
+    e.preventDefault();
+    e.stopPropagation();
+    if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
 
-          Log.info(`[ICLOUD-ADD] event click -> lookup (${iso}) "${title}"`);
-          console.log("[ICLOUD-ADD] event click -> lookup", { iso, title });
+    if (eventEl) {
+      const title = (eventEl.textContent || "").trim();
+      if (this.config.debug) console.log("[ICLOUD-ADD] intercepted EVENT tap", { iso, title, type: e.type });
+      alert(`[ICLOUD-ADD] Edit event: ${title}`);
 
-          // Temporary proof UI
-          alert(`[ICLOUD-ADD] Edit event: ${title}`);
+      this.sendSocketNotification("CE3_LOOKUP_EVENT", {
+        caldav: this.config.caldav,
+        date: iso,
+        title
+      });
+      return;
+    }
 
-          this.sendSocketNotification("CE3_LOOKUP_EVENT", {
-            caldav: this.config.caldav,
-            date: iso,
-            title
-          });
-        },
-        true
-      );
-    });
+    const hasEvents = !!dayCell.querySelector(this.config.selectors.event);
+    if (hasEvents) {
+      if (this.config.debug) console.log("[ICLOUD-ADD] day tap ignored (has events)", { iso, type: e.type });
+      return;
+    }
+
+    if (this.config.debug) console.log("[ICLOUD-ADD] intercepted EMPTY day tap", { iso, type: e.type });
+    alert(`[ICLOUD-ADD] Add event for ${iso}`);
   },
 
   socketNotificationReceived(notification, payload) {
-    if (this.config.debug) console.log("[ICLOUD-ADD] socketNotificationReceived", notification, payload);
+    if (this.config.debug) console.log("[ICLOUD-ADD] socket", notification, payload);
 
     if (notification === "CE3_LOOKUP_EVENT_RESULT") {
       if (!payload || !payload.found) {
-        if (this.config.debug) alert("[ICLOUD-ADD] Lookup: not found");
+        alert("[ICLOUD-ADD] Lookup: not found");
         return;
       }
-
-      // Later: open real edit/delete modal here
       alert(`[ICLOUD-ADD] Lookup found UID: ${payload.event.uid}`);
-      // this.openEditModal(payload.date, payload.event);
     }
 
     if (notification === "CE3_WRITE_RESULT") {
-      // Force immediate refresh of the calendar provider ICS
       this.sendNotification("FETCH_CALENDAR", { url: this.config.caldav.providerIcsUrl });
     }
 
@@ -158,4 +131,3 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     return new Date(ts).toISOString().slice(0, 10);
   }
 });
-
