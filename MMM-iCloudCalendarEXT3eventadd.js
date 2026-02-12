@@ -1,4 +1,4 @@
-/* global Module, Log */
+/* global Module */
 
 Module.register("MMM-iCloudCalendarEXT3eventadd", {
   defaults: {
@@ -9,7 +9,7 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
   start() {
     this._visible = false
     this._mode = "add" // add | edit
-    this._current = null // holds event being edited, includes uid when editing
+    this._current = null
 
     // Create a portal root in <body> so the modal is never behind CalendarExt3
     this._portal = document.getElementById("ICLOUD_EVENTADD_PORTAL")
@@ -19,24 +19,79 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
       document.body.appendChild(this._portal)
     }
 
-    // Ensure empty portal at boot
+    // Initial render (empty)
     this._renderPortal()
 
-    this._onDateClicked = (e) => {
-      const date = e?.detail?.date
-      if (!date) return
-      if (this.config.debug) console.log("[ICLOUD-ADD] empty day tap -> add", date)
-      this.openAddForDate(date)
+    // Capture clicks BEFORE CalendarExt3 handlers (popover)
+    this._onGlobalClickCapture = (ev) => {
+      // Modal open, do not handle background interactions
+      if (this._visible) return
+
+      const t = ev.target
+      if (!t || !t.closest) return
+
+      // Only respond inside CalendarExt3
+      const insideCX3 = t.closest(".CX3")
+      if (!insideCX3) return
+
+      // 1) Existing event click always wins
+      const eventDom = t.closest(".event")
+      if (eventDom && eventDom.dataset && eventDom.dataset.startDate) {
+        ev.preventDefault()
+        ev.stopPropagation()
+        if (typeof ev.stopImmediatePropagation === "function") ev.stopImmediatePropagation()
+
+        const ds = eventDom.dataset
+
+        const payload = {
+          uid: ds.uid || ds.id || null, // may be null, still open edit UI
+          title: (ds.title || "").trim(),
+          startDate: ds.startDate,
+          endDate: ds.endDate,
+          fullDayEvent: ds.fullDayEvent === "true",
+          description: ds.description || "",
+          location: ds.location || "",
+          calendarName: ds.calendarName || ""
+        }
+
+        if (this.config.debug) console.log("[ICLOUD-ADD] EVENT TAP -> EDIT", payload)
+
+        this.openEdit(payload)
+        return
+      }
+
+      // 2) Empty day click only when it is NOT an event
+      const cellDom = t.closest(".cell")
+      if (cellDom && cellDom.dataset) {
+        const hasEvents = cellDom.dataset.hasEvents === "true"
+        if (hasEvents) return // leave CalendarExt3 to show day popover
+
+        ev.preventDefault()
+        ev.stopPropagation()
+        if (typeof ev.stopImmediatePropagation === "function") ev.stopImmediatePropagation()
+
+        const date = cellDom.dataset.date
+        if (!date) return
+
+        if (this.config.debug) console.log("[ICLOUD-ADD] CELL TAP -> ADD", date)
+        this.openAddForDate(date)
+      }
     }
 
-    document.addEventListener("ICLOUD_CX3_DATE_CLICKED", this._onDateClicked)
+    document.addEventListener("click", this._onGlobalClickCapture, true)
+  },
+
+  stop() {
+    if (this._onGlobalClickCapture) {
+      document.removeEventListener("click", this._onGlobalClickCapture, true)
+    }
   },
 
   getStyles() {
     return ["MMM-iCloudCalendarEXT3eventadd.css"]
   },
 
-  // UI is rendered into <body> via portal, so the module DOM can be empty
+  // UI rendered into <body> via portal, module DOM can be empty
   getDom() {
     return document.createElement("div")
   },
@@ -45,18 +100,19 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
   _renderPortal() {
     if (!this._portal) return
 
-    // Clear everything
     this._portal.innerHTML = ""
-
-    // Only render when visible
     if (!this._visible) return
 
     const wrap = document.createElement("div")
     wrap.className = "icloudEventAddRoot"
-    wrap.style.display = "block"
 
     const overlay = document.createElement("div")
     overlay.className = "icloudOverlay"
+
+    // tap outside closes
+    overlay.onclick = (ev) => {
+      if (ev.target === overlay) this.close()
+    }
 
     const modal = document.createElement("div")
     modal.className = "icloudModal"
@@ -192,6 +248,7 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
   openAddForDate(dateMs) {
     const d = new Date(Number(dateMs))
     d.setHours(8, 0, 0, 0)
+
     const start = d.getTime()
     const end = start + 30 * 60 * 1000
 
@@ -213,11 +270,16 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
   openEdit(eventObj) {
     this._mode = "edit"
     this._current = {
-      ...eventObj,
-      // normalize numeric timestamps (CalendarExt3 often provides strings)
+      uid: eventObj.uid || null,
+      title: eventObj.title || "",
       startDate: Number(eventObj.startDate),
-      endDate: Number(eventObj.endDate)
+      endDate: Number(eventObj.endDate),
+      fullDayEvent: !!eventObj.fullDayEvent,
+      description: eventObj.description || "",
+      location: eventObj.location || "",
+      calendarName: eventObj.calendarName || ""
     }
+
     this._visible = true
     this._renderPortal()
   },
@@ -237,12 +299,8 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     const location = document.getElementById("icloud_loc")?.value || ""
     const description = document.getElementById("icloud_desc")?.value || ""
 
-    if (!title) {
-      if (this.config.debug) console.log("[ICLOUD-ADD] missing title")
-      return
-    }
-    if (!startVal || !endVal) {
-      if (this.config.debug) console.log("[ICLOUD-ADD] missing start/end")
+    if (!title || !startVal || !endVal) {
+      if (this.config.debug) console.log("[ICLOUD-ADD] missing title/start/end")
       return
     }
 
@@ -275,32 +333,11 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     const uid = this._current?.uid
     if (!uid) return
 
-    const payload = {
-      caldav: this.config.caldav,
-      uid
-    }
-
+    const payload = { caldav: this.config.caldav, uid }
     if (this.config.debug) console.log("[ICLOUD-ADD] DELETE payload", payload)
+
     this.sendSocketNotification("DELETE_CALENDAR_EVENT", payload)
     this.close()
-  },
-
-  // ---------- notifications ----------
-  notificationReceived(notification, payload) {
-    if (notification === "EDIT_CALENDAR_EVENT" && payload) {
-      if (this.config.debug) console.log("[ICLOUD-ADD] EDIT_CALENDAR_EVENT", payload)
-
-      this.openEdit({
-        uid: payload.uid || payload.id,
-        title: payload.title,
-        startDate: payload.startDate,
-        endDate: payload.endDate,
-        fullDayEvent: payload.fullDayEvent,
-        description: payload.description || "",
-        location: payload.location || "",
-        calendarName: payload.calendarName || ""
-      })
-    }
   },
 
   socketNotificationReceived(notification, payload) {
