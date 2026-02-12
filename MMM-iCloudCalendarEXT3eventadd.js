@@ -11,6 +11,17 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     this._mode = "add" // add | edit
     this._current = null // holds event being edited, includes uid when editing
 
+    // Create a portal root in <body> so the modal is never behind CalendarExt3
+    this._portal = document.getElementById("ICLOUD_EVENTADD_PORTAL")
+    if (!this._portal) {
+      this._portal = document.createElement("div")
+      this._portal.id = "ICLOUD_EVENTADD_PORTAL"
+      document.body.appendChild(this._portal)
+    }
+
+    // Ensure empty portal at boot
+    this._renderPortal()
+
     this._onDateClicked = (e) => {
       const date = e?.detail?.date
       if (!date) return
@@ -25,11 +36,24 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     return ["MMM-iCloudCalendarEXT3eventadd.css"]
   },
 
+  // UI is rendered into <body> via portal, so the module DOM can be empty
   getDom() {
+    return document.createElement("div")
+  },
+
+  // ---------- portal renderer ----------
+  _renderPortal() {
+    if (!this._portal) return
+
+    // Clear everything
+    this._portal.innerHTML = ""
+
+    // Only render when visible
+    if (!this._visible) return
+
     const wrap = document.createElement("div")
     wrap.className = "icloudEventAddRoot"
-    wrap.style.display = this._visible ? "block" : "none"
-    wrap.style.pointerEvents = this._visible ? "auto" : "none"
+    wrap.style.display = "block"
 
     const overlay = document.createElement("div")
     overlay.className = "icloudOverlay"
@@ -66,6 +90,18 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     const btnBar = document.createElement("div")
     btnBar.className = "icloudButtons"
 
+    // Delete button only in edit mode with uid
+    if (this._mode === "edit" && this._current?.uid) {
+      const delBtn = document.createElement("button")
+      delBtn.className = "icloudBtn delete"
+      delBtn.textContent = "Delete"
+      delBtn.onclick = (ev) => {
+        ev.preventDefault()
+        this._delete()
+      }
+      btnBar.append(delBtn)
+    }
+
     const cancelBtn = document.createElement("button")
     cancelBtn.className = "icloudBtn cancel"
     cancelBtn.textContent = "Cancel"
@@ -82,18 +118,6 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
       this._submit()
     }
 
-    // delete button only in edit mode with uid
-    if (this._mode === "edit" && this._current?.uid) {
-      const delBtn = document.createElement("button")
-      delBtn.className = "icloudBtn delete"
-      delBtn.textContent = "Delete"
-      delBtn.onclick = (ev) => {
-        ev.preventDefault()
-        this._delete()
-      }
-      btnBar.append(delBtn)
-    }
-
     btnBar.append(cancelBtn, saveBtn)
 
     form.append(titleRow, allDayRow, startRow, endRow, locRow, descRow, btnBar)
@@ -101,7 +125,7 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     overlay.append(modal)
     wrap.append(overlay)
 
-    return wrap
+    this._portal.appendChild(wrap)
   },
 
   // ---------- UI helpers ----------
@@ -183,7 +207,7 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     }
 
     this._visible = true
-    this.updateDom(0)
+    this._renderPortal()
   },
 
   openEdit(eventObj) {
@@ -195,13 +219,13 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
       endDate: Number(eventObj.endDate)
     }
     this._visible = true
-    this.updateDom(0)
+    this._renderPortal()
   },
 
   close() {
     this._visible = false
     this._current = null
-    this.updateDom(0)
+    this._renderPortal()
   },
 
   // ---------- submit/delete ----------
@@ -281,11 +305,5 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
 
   socketNotificationReceived(notification, payload) {
     if (this.config.debug) console.log("[ICLOUD-ADD] socket:", notification, payload)
-
-    // Optional: you can display a toast or log success/failure here.
-    // Backend should send:
-    // EVENT_ADD_SUCCESS / EVENT_UPDATE_SUCCESS / EVENT_DELETE_SUCCESS
-    // EVENT_OP_FAILED
   }
 })
-
