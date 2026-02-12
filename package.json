@@ -1,0 +1,12 @@
+{
+  "name": "mmm-icloudcalendarext3eventadd",
+  "version": "1.0.0",
+  "description": "Add, edit, and delete iCloud CalDAV events from MMM-CalendarExt3",
+  "main": "MMM-iCloudCalendarEXT3eventadd.js",
+  "keywords": ["magicmirror", "caldav", "icloud", "calendarext3"],
+  "author": "Wade",
+  "license": "MIT",
+  "dependencies": {
+    "dav": "^1.8.0"
+  }
+}
