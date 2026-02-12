@@ -1,12 +1,13 @@
 .icloudEventAddRoot {
   position: fixed;
   inset: 0;
-  z-index: 9999;
+  z-index: 99999;
 }
 
 .icloudOverlay {
   position: fixed;
   inset: 0;
+  z-index: 99999;
   background: rgba(0,0,0,0.55);
   display: flex;
   align-items: center;
@@ -14,6 +15,8 @@
 }
 
 .icloudModal {
+  position: relative;
+  z-index: 100000;
   width: 70%;
   max-width: 900px;
   background: #fff;
