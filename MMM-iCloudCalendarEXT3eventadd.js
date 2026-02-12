@@ -2,139 +2,264 @@
 
 Module.register("MMM-iCloudCalendarEXT3eventadd", {
   defaults: {
-    caldav: {
-      envPrefix: "ICLOUD_",
-      serverUrl: "https://caldav.icloud.com",
-      calendarDisplayName: "Family",
-      providerIcsUrl: "http://127.0.0.1:8888/CALDAV/ICLOUD_Family.ics"
-    },
-    // CalendarExt3 puts these on each day cell
-    dayCellSelector: ".MMM-CalendarExt3 .cell[data-date]",
-    // CalendarExt3 event DOM uses .event and sets data-popoverble=true when popover supported
-    eventSelector: ".MMM-CalendarExt3 .event",
-    debug: true
+    debug: false,
+    caldav: {},
   },
 
   start() {
-    Log.info("[ICLOUD-ADD] started");
-    this._rootHooked = false;
-    this._lastTapTs = 0;
+    this._visible = false
+    this._mode = "add" // add | edit
+    this._current = null // holds event being edited, includes uid when editing
+
+    this._onDateClicked = (e) => {
+      const date = e?.detail?.date
+      if (!date) return
+      if (this.config.debug) console.log("[ICLOUD-ADD] empty day tap -> add", date)
+      this.openAddForDate(date)
+    }
+
+    document.addEventListener("ICLOUD_CX3_DATE_CLICKED", this._onDateClicked)
+  },
+
+  getStyles() {
+    return ["MMM-iCloudCalendarEXT3eventadd.css"]
   },
 
   getDom() {
-    // UI-less module, click hooks only
-    const w = document.createElement("div");
-    w.style.display = "none";
-    return w;
+    const wrap = document.createElement("div")
+    wrap.className = "icloudEventAddRoot"
+    wrap.style.display = this._visible ? "block" : "none"
+
+    const overlay = document.createElement("div")
+    overlay.className = "icloudOverlay"
+
+    const modal = document.createElement("div")
+    modal.className = "icloudModal"
+
+    const title = document.createElement("div")
+    title.className = "icloudTitle"
+    title.textContent = this._mode === "edit" ? "Edit event" : "Add event"
+
+    const form = document.createElement("div")
+    form.className = "icloudForm"
+
+    const titleRow = this._row("Title", "text", "icloud_title", this._current?.title || "")
+    const allDayRow = this._rowCheckbox("All day", "icloud_allday", !!this._current?.fullDayEvent)
+
+    // Start and end fields, use datetime-local, for all-day we treat as date-only in backend if needed
+    const startRow = this._row("Start", "datetime-local", "icloud_start", this._toDateTimeLocal(this._current?.startDate))
+    const endRow = this._row("End", "datetime-local", "icloud_end", this._toDateTimeLocal(this._current?.endDate))
+
+    const descRow = this._rowTextArea("Description", "icloud_desc", this._current?.description || "")
+    const locRow = this._row("Location", "text", "icloud_loc", this._current?.location || "")
+
+    const btnBar = document.createElement("div")
+    btnBar.className = "icloudButtons"
+
+    const cancelBtn = document.createElement("button")
+    cancelBtn.className = "icloudBtn cancel"
+    cancelBtn.textContent = "Cancel"
+    cancelBtn.onclick = (ev) => {
+      ev.preventDefault()
+      this.close()
+    }
+
+    const saveBtn = document.createElement("button")
+    saveBtn.className = "icloudBtn save"
+    saveBtn.textContent = "Save"
+    saveBtn.onclick = (ev) => {
+      ev.preventDefault()
+      this._submit()
+    }
+
+    btnBar.append(cancelBtn, saveBtn)
+
+    // optional delete button in edit mode
+    if (this._mode === "edit" && this._current?.uid) {
+      const delBtn = document.createElement("button")
+      delBtn.className = "icloudBtn delete"
+      delBtn.textContent = "Delete"
+      delBtn.onclick = (ev) => {
+        ev.preventDefault()
+        this._delete()
+      }
+      btnBar.prepend(delBtn)
+    }
+
+    form.append(titleRow, allDayRow, startRow, endRow, locRow, descRow, btnBar)
+    modal.append(title, form)
+    overlay.append(modal)
+    wrap.append(overlay)
+
+    return wrap
   },
 
-  notificationReceived(notification, payload) {
-    // 1) Existing event click, CalendarExt3 already emits this with rich details
-    if (notification === "EDIT_CALENDAR_EVENT" && payload) {
-      if (this.config.debug) console.log("[ICLOUD-ADD] EDIT_CALENDAR_EVENT", payload);
+  // ---------- UI helpers ----------
+  _row(label, type, id, value) {
+    const row = document.createElement("div")
+    row.className = "icloudRow"
 
-      // Ask backend to locate the CalDAV object reliably using title + start/end
-      this.sendSocketNotification("CE3_LOOKUP_EVENT", {
-        caldav: this.config.caldav,
-        // CalendarExt3 provides startDate/endDate as timestamps (strings), keep them
+    const l = document.createElement("label")
+    l.textContent = label
+    l.htmlFor = id
+
+    const input = document.createElement("input")
+    input.type = type
+    input.id = id
+    input.value = value || ""
+
+    row.append(l, input)
+    return row
+  },
+
+  _rowCheckbox(label, id, checked) {
+    const row = document.createElement("div")
+    row.className = "icloudRow"
+
+    const l = document.createElement("label")
+    l.textContent = label
+    l.htmlFor = id
+
+    const input = document.createElement("input")
+    input.type = "checkbox"
+    input.id = id
+    input.checked = !!checked
+
+    row.append(l, input)
+    return row
+  },
+
+  _rowTextArea(label, id, value) {
+    const row = document.createElement("div")
+    row.className = "icloudRow"
+
+    const l = document.createElement("label")
+    l.textContent = label
+    l.htmlFor = id
+
+    const ta = document.createElement("textarea")
+    ta.id = id
+    ta.value = value || ""
+
+    row.append(l, ta)
+    return row
+  },
+
+  _toDateTimeLocal(ms) {
+    if (!ms) return ""
+    const n = Number(ms)
+    if (!Number.isFinite(n)) return ""
+    const d = new Date(n)
+    const pad = (x) => String(x).padStart(2, "0")
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  },
+
+  // ---------- open/close ----------
+  openAddForDate(dateMs) {
+    const d = new Date(Number(dateMs))
+    d.setHours(8, 0, 0, 0)
+    const start = d.getTime()
+    const end = start + 30 * 60 * 1000
+
+    this._mode = "add"
+    this._current = {
+      title: "",
+      startDate: start,
+      endDate: end,
+      fullDayEvent: false,
+      description: "",
+      location: ""
+    }
+
+    this._visible = true
+    this.updateDom(0)
+  },
+
+  openEdit(eventObj) {
+    this._mode = "edit"
+    this._current = { ...eventObj }
+    this._visible = true
+    this.updateDom(0)
+  },
+
+  close() {
+    this._visible = false
+    this._current = null
+    this.updateDom(0)
+  },
+
+  // ---------- submit/delete ----------
+  _submit() {
+    const title = document.getElementById("icloud_title")?.value?.trim() || ""
+    const allDay = !!document.getElementById("icloud_allday")?.checked
+    const startVal = document.getElementById("icloud_start")?.value
+    const endVal = document.getElementById("icloud_end")?.value
+    const location = document.getElementById("icloud_loc")?.value || ""
+    const description = document.getElementById("icloud_desc")?.value || ""
+
+    if (!title) {
+      if (this.config.debug) console.log("[ICLOUD-ADD] missing title")
+      return
+    }
+    if (!startVal || !endVal) {
+      if (this.config.debug) console.log("[ICLOUD-ADD] missing start/end")
+      return
+    }
+
+    const startDate = new Date(startVal).getTime()
+    const endDate = new Date(endVal).getTime()
+
+    const payload = {
+      caldav: this.config.caldav,
+      uid: this._current?.uid || null,
+      title,
+      startDate,
+      endDate,
+      allDay,
+      location,
+      description
+    }
+
+    if (this._mode === "edit" && payload.uid) {
+      this.sendSocketNotification("UPDATE_CALENDAR_EVENT", payload)
+    } else {
+      this.sendSocketNotification("ADD_CALENDAR_EVENT", payload)
+    }
+
+    this.close()
+  },
+
+  _delete() {
+    const uid = this._current?.uid
+    if (!uid) return
+    this.sendSocketNotification("DELETE_CALENDAR_EVENT", {
+      caldav: this.config.caldav,
+      uid
+    })
+    this.close()
+  },
+
+  // ---------- notifications ----------
+  notificationReceived(notification, payload) {
+    if (notification === "EDIT_CALENDAR_EVENT" && payload) {
+      if (this.config.debug) console.log("[ICLOUD-ADD] EDIT_CALENDAR_EVENT", payload)
+
+      // Now that you have uid/id, do not lookup by title/time
+      // Open edit UI immediately, then backend can resolve href/etag if you need it
+      this.openEdit({
+        uid: payload.uid || payload.id,
         title: payload.title,
         startDate: payload.startDate,
         endDate: payload.endDate,
-        calendarName: payload.calendarName,
-        allDay: payload.allDay,
-        location: payload.location,
-        description: payload.description
-      });
-
-      // Later: open your edit/delete modal immediately using payload,
-      // then when LOOKUP returns UID/href/etag you enable Save/Delete.
-      return;
+        fullDayEvent: payload.fullDayEvent,
+        description: payload.description || "",
+        location: payload.location || "",
+        calendarName: payload.calendarName || ""
+      })
     }
-
-    // 2) When DOM is ready, hook empty day clicks once
-    if (notification === "DOM_OBJECTS_CREATED") {
-      setTimeout(() => this.hookEmptyDayClicks(), 800);
-    }
-  },
-
-  hookEmptyDayClicks() {
-    if (this._rootHooked) return;
-
-    const root = document.querySelector(".MMM-CalendarExt3");
-    if (!root) {
-      if (this.config.debug) console.log("[ICLOUD-ADD] CalendarExt3 root not found yet");
-      return;
-    }
-
-    // Use pointerup/touchend so it works on touchscreen kiosk
-    const handler = (e) => {
-      // Debounce fast repeat taps
-      const now = Date.now();
-      if (now - this._lastTapTs < 250) return;
-      this._lastTapTs = now;
-
-      // If tapped on an event, do nothing here.
-      if (e.target.closest(this.config.eventSelector)) return;
-
-      const cell = e.target.closest(this.config.dayCellSelector);
-      if (!cell) return;
-
-      // CalendarExt3 sets data-hasevents to 'true'/'false'
-      const hasEvents = (cell.dataset.hasEvents === "true");
-      if (hasEvents) return;
-
-      const iso = this.toISO(cell.dataset.date || cell.getAttribute("data-date"));
-      if (!iso) return;
-
-      if (this.config.debug) console.log("[ICLOUD-ADD] empty day tap -> add", iso);
-
-      // IMPORTANT: don’t use alert. This is where you open your modal.
-      // For now, just log and ask backend to prep any needed defaults.
-      this.sendSocketNotification("CE3_PREP_ADD", {
-        caldav: this.config.caldav,
-        date: iso
-      });
-
-      // Later: openAddModal(iso)
-    };
-
-    root.addEventListener("pointerup", handler, true);
-    root.addEventListener("touchend", handler, true);
-
-    this._rootHooked = true;
-    if (this.config.debug) console.log("[ICLOUD-ADD] empty day click hooks attached");
   },
 
   socketNotificationReceived(notification, payload) {
-    if (this.config.debug) console.log("[ICLOUD-ADD] socket", notification, payload);
-
-    if (notification === "CE3_LOOKUP_EVENT_RESULT") {
-      if (!payload || !payload.found) {
-        console.log("[ICLOUD-ADD] lookup: not found");
-        return;
-      }
-
-      console.log("[ICLOUD-ADD] lookup found:", payload.event);
-
-      // payload.event should include uid/href/etag so update/delete is safe
-      // Later: openEditModal(payload.event)
-      return;
-    }
-
-    if (notification === "CE3_WRITE_RESULT") {
-      // Immediate refresh of the calendar module’s ICS URL
-      this.sendNotification("FETCH_CALENDAR", { url: this.config.caldav.providerIcsUrl });
-      return;
-    }
-
-    if (notification === "CE3_WRITE_ERROR") {
-      console.error("[ICLOUD-ADD] write error:", payload);
-    }
-  },
-
-  toISO(ts) {
-    const n = parseInt(ts, 10);
-    if (Number.isNaN(n)) return "";
-    return new Date(n).toISOString().slice(0, 10);
+    if (this.config.debug) console.log("[ICLOUD-ADD] socket:", notification, payload)
   }
-});
+})
