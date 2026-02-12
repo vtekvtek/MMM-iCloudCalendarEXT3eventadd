@@ -3,7 +3,7 @@
 Module.register("MMM-iCloudCalendarEXT3eventadd", {
   defaults: {
     debug: false,
-    caldav: {},
+    caldav: {}
   },
 
   start() {
@@ -46,12 +46,21 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     const titleRow = this._row("Title", "text", "icloud_title", this._current?.title || "")
     const allDayRow = this._rowCheckbox("All day", "icloud_allday", !!this._current?.fullDayEvent)
 
-    // Start and end fields, use datetime-local, for all-day we treat as date-only in backend if needed
-    const startRow = this._row("Start", "datetime-local", "icloud_start", this._toDateTimeLocal(this._current?.startDate))
-    const endRow = this._row("End", "datetime-local", "icloud_end", this._toDateTimeLocal(this._current?.endDate))
+    const startRow = this._row(
+      "Start",
+      "datetime-local",
+      "icloud_start",
+      this._toDateTimeLocal(this._current?.startDate)
+    )
+    const endRow = this._row(
+      "End",
+      "datetime-local",
+      "icloud_end",
+      this._toDateTimeLocal(this._current?.endDate)
+    )
 
-    const descRow = this._rowTextArea("Description", "icloud_desc", this._current?.description || "")
     const locRow = this._row("Location", "text", "icloud_loc", this._current?.location || "")
+    const descRow = this._rowTextArea("Description", "icloud_desc", this._current?.description || "")
 
     const btnBar = document.createElement("div")
     btnBar.className = "icloudButtons"
@@ -72,9 +81,7 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
       this._submit()
     }
 
-    btnBar.append(cancelBtn, saveBtn)
-
-    // optional delete button in edit mode
+    // delete button only in edit mode with uid
     if (this._mode === "edit" && this._current?.uid) {
       const delBtn = document.createElement("button")
       delBtn.className = "icloudBtn delete"
@@ -83,8 +90,10 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
         ev.preventDefault()
         this._delete()
       }
-      btnBar.prepend(delBtn)
+      btnBar.append(delBtn)
     }
+
+    btnBar.append(cancelBtn, saveBtn)
 
     form.append(titleRow, allDayRow, startRow, endRow, locRow, descRow, btnBar)
     modal.append(title, form)
@@ -146,7 +155,7 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
   },
 
   _toDateTimeLocal(ms) {
-    if (!ms) return ""
+    if (ms === null || ms === undefined || ms === "") return ""
     const n = Number(ms)
     if (!Number.isFinite(n)) return ""
     const d = new Date(n)
@@ -163,6 +172,7 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
 
     this._mode = "add"
     this._current = {
+      uid: null,
       title: "",
       startDate: start,
       endDate: end,
@@ -177,7 +187,12 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
 
   openEdit(eventObj) {
     this._mode = "edit"
-    this._current = { ...eventObj }
+    this._current = {
+      ...eventObj,
+      // normalize numeric timestamps (CalendarExt3 often provides strings)
+      startDate: Number(eventObj.startDate),
+      endDate: Number(eventObj.endDate)
+    }
     this._visible = true
     this.updateDom(0)
   },
@@ -221,8 +236,10 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     }
 
     if (this._mode === "edit" && payload.uid) {
+      if (this.config.debug) console.log("[ICLOUD-ADD] UPDATE payload", payload)
       this.sendSocketNotification("UPDATE_CALENDAR_EVENT", payload)
     } else {
+      if (this.config.debug) console.log("[ICLOUD-ADD] ADD payload", payload)
       this.sendSocketNotification("ADD_CALENDAR_EVENT", payload)
     }
 
@@ -232,10 +249,14 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
   _delete() {
     const uid = this._current?.uid
     if (!uid) return
-    this.sendSocketNotification("DELETE_CALENDAR_EVENT", {
+
+    const payload = {
       caldav: this.config.caldav,
       uid
-    })
+    }
+
+    if (this.config.debug) console.log("[ICLOUD-ADD] DELETE payload", payload)
+    this.sendSocketNotification("DELETE_CALENDAR_EVENT", payload)
     this.close()
   },
 
@@ -244,8 +265,6 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     if (notification === "EDIT_CALENDAR_EVENT" && payload) {
       if (this.config.debug) console.log("[ICLOUD-ADD] EDIT_CALENDAR_EVENT", payload)
 
-      // Now that you have uid/id, do not lookup by title/time
-      // Open edit UI immediately, then backend can resolve href/etag if you need it
       this.openEdit({
         uid: payload.uid || payload.id,
         title: payload.title,
@@ -261,5 +280,10 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
 
   socketNotificationReceived(notification, payload) {
     if (this.config.debug) console.log("[ICLOUD-ADD] socket:", notification, payload)
+
+    // Optional: you can display a toast or log success/failure here.
+    // Backend should send:
+    // EVENT_ADD_SUCCESS / EVENT_UPDATE_SUCCESS / EVENT_DELETE_SUCCESS
+    // EVENT_OP_FAILED
   }
 })
