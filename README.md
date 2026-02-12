@@ -12,7 +12,7 @@ Add, edit, delete iCloud CalDAV events directly from MMM-CalendarExt3.
 
 cd ~/MagicMirror/modules
 
-git clone https://github.com/YOURNAME/MMM-iCloudCalendarEXT3eventadd.git
+git clone https://github.com/vtekvtek/MMM-iCloudCalendarEXT3eventadd.git
 
 cd MMM-iCloudCalendarEXT3eventadd
 
@@ -65,6 +65,7 @@ pm2 restart MagicMirror
 &nbsp; }
 
 }
+
 
 
 
