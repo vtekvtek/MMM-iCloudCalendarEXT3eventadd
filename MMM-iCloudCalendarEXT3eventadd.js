@@ -3,7 +3,9 @@
 Module.register("MMM-iCloudCalendarEXT3eventadd", {
   defaults: {
     debug: false,
-    caldav: {}
+    caldav: {},
+    keyboardKey: "MMM-iCloudCalendarEXT3eventadd",
+    keyboardStyle: "default" // "default" or "numbers"
   },
 
   start() {
@@ -11,8 +13,6 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     this._mode = "add"; // "add" | "edit"
     this._current = null;
     this._currentActiveInputId = null;
-    this.keyboard = null;
-    this._kbdTimer = null;
 
     // Create or find the portal div
     this._portal = document.getElementById("ICLOUD_EVENTADD_PORTAL");
@@ -26,13 +26,11 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
 
     // Capture clicks before CalendarExt3 handles them
     this._onGlobalClickCapture = (ev) => {
-      // If our modal is already open, don't recapture
       if (this._visible) return;
 
       const t = ev.target;
       if (!t || !t.closest) return;
 
-      // Only care about clicks inside CalendarExt3
       const insideCX3 = t.closest(".CX3");
       if (!insideCX3) return;
 
@@ -43,7 +41,6 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
         ev.stopImmediatePropagation();
 
         const ds = eventDom.dataset;
-
         this.openEdit({
           uid: ds.uid || ds.id || null,
           title: (ds.title || "").trim(),
@@ -72,117 +69,54 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
   },
 
   getStyles() {
-    return [
-      "MMM-iCloudCalendarEXT3eventadd.css",
-      "https://cdn.jsdelivr.net/npm/simple-keyboard@latest/build/css/index.css"
-    ];
+    // MMM-Keyboard loads and styles its own keyboard
+    return ["MMM-iCloudCalendarEXT3eventadd.css"];
   },
 
-  getScripts() {
-    return ["https://cdn.jsdelivr.net/npm/simple-keyboard@latest/build/index.min.js"];
-  },
+  // ---------- MMM-Keyboard integration ----------
+  _openKeyboardForTarget(targetId, styleOverride) {
+    this._currentActiveInputId = targetId;
 
-  // ---------- keyboard ----------
-  _initKeyboard() {
-    if (typeof window.SimpleKeyboard === "undefined") return;
-    if (this.keyboard) return;
-
-    this.keyboard = new window.SimpleKeyboard.default({
-      onChange: (input) => this._onKeyboardChange(input),
-      onKeyPress: (button) => this._onKeyboardKeyPress(button),
-      theme: "hg-theme-default hg-layout-default icloud-keyboard",
-      layoutName: "default",
-      layout: {
-        default: [
-          "q w e r t y u i o p",
-          "a s d f g h j k l",
-          "{shift} z x c v b n m {backspace}",
-          "{numbers} , . - {space} {close}"
-        ],
-        shift: [
-          "Q W E R T Y U I O P",
-          "A S D F G H J K L",
-          "{shift} Z X C V B N M {backspace}",
-          "{numbers} , . - {space} {close}"
-        ],
-        numbers: ["1 2 3", "4 5 6", "7 8 9", "{abc} 0 {backspace}"]
-      },
-      display: {
-        "{shift}": "⇧",
-        "{backspace}": "⌫",
-        "{numbers}": "123",
-        "{abc}": "ABC",
-        "{space}": "Space",
-        "{close}": "Close"
+    const payload = {
+      key: this.config.keyboardKey,
+      style: styleOverride || this.config.keyboardStyle,
+      data: {
+        targetId
       }
-    });
+    };
 
-    // If something is already focused, sync keyboard to it
-    if (this._currentActiveInputId) {
-      const el = document.getElementById(this._currentActiveInputId);
-      if (el) this.keyboard.setInput(el.value || "");
-    }
+    if (this.config.debug) console.log("[ICLOUD-ADD] opening MMM-Keyboard:", payload);
+    this.sendNotification("KEYBOARD", payload);
   },
 
-  _destroyKeyboard() {
-    if (this._kbdTimer) {
-      clearTimeout(this._kbdTimer);
-      this._kbdTimer = null;
-    }
-    if (this.keyboard) {
-      this.keyboard.destroy();
-      this.keyboard = null;
-    }
-  },
+  notificationReceived(notification, payload) {
+    if (notification !== "KEYBOARD_INPUT") return;
+    if (!payload || payload.key !== this.config.keyboardKey) return;
 
-  _onKeyboardChange(input) {
-    const inputElement = document.getElementById(this._currentActiveInputId);
-    if (!inputElement) return;
+    const targetId = payload.data?.targetId;
+    const message = payload.message ?? "";
 
-    inputElement.value = input;
-    inputElement.dispatchEvent(new Event("input", { bubbles: true }));
-  },
-
-  _onKeyboardKeyPress(button) {
-    if (!this.keyboard) return;
-
-    if (button === "{shift}" || button === "{lock}") {
-      const currentLayout = this.keyboard.options.layoutName;
-      this.keyboard.setOptions({
-        layoutName: currentLayout === "default" ? "shift" : "default"
-      });
-      return;
+    if (this.config.debug) {
+      console.log("[ICLOUD-ADD] KEYBOARD_INPUT:", { targetId, message });
     }
 
-    if (button === "{numbers}") {
-      this.keyboard.setOptions({ layoutName: "numbers" });
-      return;
-    }
+    if (!targetId) return;
 
-    if (button === "{abc}") {
-      this.keyboard.setOptions({ layoutName: "default" });
-      return;
-    }
+    const el = document.getElementById(targetId);
+    if (!el) return;
 
-    if (button === "{close}") {
-      this.close();
-    }
+    el.value = message;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
   },
 
   // ---------- UI ----------
   _renderPortal() {
     if (!this._portal) return;
 
-    // Toggle portal visibility via class to avoid fragile inline display logic
     this._portal.classList.toggle("is-open", !!this._visible);
-
-    // Clear content
     this._portal.innerHTML = "";
 
-    if (!this._visible) {
-      this._destroyKeyboard();
-      return;
-    }
+    if (!this._visible) return;
 
     const wrap = document.createElement("div");
     wrap.className = "icloudEventAddRoot";
@@ -223,19 +157,16 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
 
     btnBar.append(cancelBtn, saveBtn);
 
-    const kbdDiv = document.createElement("div");
-    // Important: add icloud-keyboard class so your CSS targets actually match
-    kbdDiv.className = "simple-keyboard icloud-keyboard";
-
-    form.append(titleRow, startRow, endRow, locRow, descRow, btnBar, kbdDiv);
+    form.append(titleRow, startRow, endRow, locRow, descRow, btnBar);
     modal.append(title, form);
     overlay.append(modal);
     wrap.append(overlay);
     this._portal.appendChild(wrap);
 
-    // Init keyboard after the container exists
-    this._kbdTimer = setTimeout(() => {
-      if (this._visible) this._initKeyboard();
+    // Auto-focus title so the user can immediately type
+    setTimeout(() => {
+      const el = document.getElementById("icloud_title");
+      if (el) el.focus();
     }, 0);
   },
 
@@ -252,20 +183,9 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     input.id = id;
     input.value = value || "";
 
-    // Use keyboard for text fields (and optionally datetime fields too)
-    const keyboardTypes = new Set(["text"]);
-    if (keyboardTypes.has(type)) {
-      input.addEventListener("focus", () => {
-        this._currentActiveInputId = id;
-        if (this.keyboard) this.keyboard.setInput(input.value || "");
-      });
-
-      // Keep keyboard in sync if a physical keyboard is used
-      input.addEventListener("input", (e) => {
-        if (this._currentActiveInputId === id && this.keyboard) {
-          this.keyboard.setInput(e.target.value || "");
-        }
-      });
+    // Use MMM-Keyboard only for text fields (datetime is awkward on a soft keyboard)
+    if (type === "text") {
+      input.addEventListener("focus", () => this._openKeyboardForTarget(id, "default"));
     }
 
     row.append(l, input);
@@ -284,16 +204,7 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     ta.id = id;
     ta.value = value || "";
 
-    ta.addEventListener("focus", () => {
-      this._currentActiveInputId = id;
-      if (this.keyboard) this.keyboard.setInput(ta.value || "");
-    });
-
-    ta.addEventListener("input", (e) => {
-      if (this._currentActiveInputId === id && this.keyboard) {
-        this.keyboard.setInput(e.target.value || "");
-      }
-    });
+    ta.addEventListener("focus", () => this._openKeyboardForTarget(id, "default"));
 
     row.append(l, ta);
     return row;
@@ -318,7 +229,6 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     this._mode = "add";
     this._current = { title: "", startDate: start, endDate: start + 30 * 60 * 1000 };
     this._visible = true;
-    this._currentActiveInputId = "icloud_title";
     this._renderPortal();
   },
 
@@ -326,7 +236,6 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     this._mode = "edit";
     this._current = eventObj;
     this._visible = true;
-    this._currentActiveInputId = "icloud_title";
     this._renderPortal();
   },
 
@@ -335,6 +244,9 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     this._current = null;
     this._currentActiveInputId = null;
     this._renderPortal();
+
+    // This is optional, but many keyboard modules use it as a cue to hide
+    this.sendNotification("FORM_CLOSED");
   },
 
   // ---------- submit (placeholder for now) ----------
