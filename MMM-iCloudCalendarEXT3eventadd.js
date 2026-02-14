@@ -247,6 +247,7 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
 
     // This is optional, but many keyboard modules use it as a cue to hide
     this.sendNotification("FORM_CLOSED");
+    this.sendNotification("HIDE_KEYBOARD");
   },
 
   // ---------- submit (placeholder for now) ----------
@@ -255,3 +256,4 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     this.close();
   }
 });
+
