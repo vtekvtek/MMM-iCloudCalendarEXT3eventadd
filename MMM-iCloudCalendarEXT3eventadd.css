@@ -1,106 +1,127 @@
-/* Ensure the portal covers the whole screen but stays invisible when empty */
+/* Portal covers full screen, hidden by default */
 #ICLOUD_EVENTADD_PORTAL {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    z-index: 9999 !important;
-    pointer-events: none; /* Allows clicks to pass through when modal is closed */
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 9999 !important;
+  display: none;
+  pointer-events: none;
 }
 
-/* Re-enable clicks when the modal is visible */
+#ICLOUD_EVENTADD_PORTAL.is-open {
+  display: block;
+  pointer-events: auto;
+}
+
+/* Center modal */
 .icloudEventAddRoot {
-    pointer-events: auto;
-    width: 100%;
-    height: 100%;
-    display: flex;
-    justify-content: center;
-    align-items: center;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
-/* Dim the background mirror modules */
+/* Overlay */
 .icloudOverlay {
-    background-color: rgba(0, 0, 0, 0.85);
-    width: 100%;
-    height: 100%;
-    display: flex;
-    justify-content: center;
-    align-items: center;
+  background-color: rgba(0, 0, 0, 0.85);
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
-/* The Modal Box */
+/* Modal */
 .icloudModal {
-    background: #111;
-    border: 1px solid #444;
-    border-radius: 15px;
-    padding: 20px;
-    width: 700px; /* Wider to fit the keyboard nicely */
-    box-shadow: 0 0 20px rgba(0,0,0,1);
+  background: #111;
+  border: 1px solid #444;
+  border-radius: 15px;
+  padding: 20px;
+  width: min(700px, 92vw);
+  max-height: 92vh;
+  overflow: auto;
+  box-shadow: 0 0 20px rgba(0, 0, 0, 1);
 }
 
 .icloudTitle {
-    font-size: 24px;
-    margin-bottom: 15px;
-    color: #fff;
-    border-bottom: 1px solid #333;
-    padding-bottom: 10px;
+  font-size: 24px;
+  margin-bottom: 15px;
+  color: #fff;
+  border-bottom: 1px solid #333;
+  padding-bottom: 10px;
 }
 
-/* Form Layout */
+/* Form */
 .icloudRow {
-    margin-bottom: 10px;
-    display: flex;
-    flex-direction: column;
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
 }
 
 .icloudRow label {
-    font-size: 14px;
-    color: #aaa;
-    margin-bottom: 5px;
+  font-size: 14px;
+  color: #aaa;
+  margin-bottom: 5px;
 }
 
-.icloudRow input, .icloudRow textarea {
-    background: #222;
-    border: 1px solid #444;
-    color: white;
-    padding: 8px;
-    border-radius: 5px;
-    font-size: 18px;
+.icloudRow input,
+.icloudRow textarea {
+  background: #222;
+  border: 1px solid #444;
+  color: white;
+  padding: 8px;
+  border-radius: 5px;
+  font-size: 18px;
+}
+
+.icloudRow input:focus,
+.icloudRow textarea:focus {
+  outline: 2px solid #888;
+  border-color: #888;
 }
 
 /* Buttons */
 .icloudButtons {
-    display: flex;
-    justify-content: flex-end;
-    gap: 10px;
-    margin-top: 15px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 15px;
 }
 
 .icloudBtn {
-    padding: 10px 20px;
-    border-radius: 5px;
-    border: none;
-    font-weight: bold;
-    cursor: pointer;
+  padding: 10px 20px;
+  border-radius: 5px;
+  border: none;
+  font-weight: bold;
+  cursor: pointer;
 }
 
-.icloudBtn.save { background: #28a745; color: white; }
-.icloudBtn.cancel { background: #6c757d; color: white; }
+.icloudBtn.save {
+  background: #28a745;
+  color: white;
+}
 
-/* Keyboard Mirror Integration */
+.icloudBtn.cancel {
+  background: #6c757d;
+  color: white;
+}
+
+/* SimpleKeyboard styling, now matches the container class */
 .icloud-keyboard.simple-keyboard {
-    background-color: transparent !important;
-    margin-top: 20px;
+  background-color: transparent !important;
+  margin-top: 20px;
 }
 
 .icloud-keyboard .hg-button {
-    background: #333 !important;
-    color: white !important;
-    border-bottom: 3px solid #000 !important;
-    height: 50px !important;
+  background: #333 !important;
+  color: white !important;
+  border-bottom: 3px solid #000 !important;
+  height: 50px !important;
 }
 
 .icloud-keyboard .hg-button:active {
-    background: #555 !important;
+  background: #555 !important;
 }
