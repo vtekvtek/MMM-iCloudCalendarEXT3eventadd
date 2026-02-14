@@ -8,9 +8,11 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
 
   start() {
     this._visible = false;
-    this._mode = "add";
+    this._mode = "add"; // "add" | "edit"
     this._current = null;
     this._currentActiveInputId = null;
+    this.keyboard = null;
+    this._kbdTimer = null;
 
     // Create or find the portal div
     this._portal = document.getElementById("ICLOUD_EVENTADD_PORTAL");
@@ -22,9 +24,9 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
 
     this._renderPortal();
 
-    // The Global Click Capture Fix
+    // Capture clicks before CalendarExt3 handles them
     this._onGlobalClickCapture = (ev) => {
-      // If our modal is already open, don't re-capture
+      // If our modal is already open, don't recapture
       if (this._visible) return;
 
       const t = ev.target;
@@ -34,13 +36,14 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
       const insideCX3 = t.closest(".CX3");
       if (!insideCX3) return;
 
-      // 1. Handle clicks on existing events (Edit Mode)
+      // 1) Click on existing event, open Edit
       const eventDom = t.closest(".event");
       if (eventDom && eventDom.dataset && eventDom.dataset.startDate) {
         ev.preventDefault();
-        ev.stopImmediatePropagation(); // STOP CX3 default behavior
+        ev.stopImmediatePropagation();
 
         const ds = eventDom.dataset;
+
         this.openEdit({
           uid: ds.uid || ds.id || null,
           title: (ds.title || "").trim(),
@@ -54,18 +57,17 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
         return;
       }
 
-      // 2. Handle clicks on empty cells (Add Mode)
+      // 2) Click on empty cell, open Add
       const cellDom = t.closest(".cell");
       if (cellDom && cellDom.dataset) {
         ev.preventDefault();
-        ev.stopImmediatePropagation(); // STOP CX3 default behavior
+        ev.stopImmediatePropagation();
 
         const date = cellDom.dataset.date;
         if (date) this.openAddForDate(date);
       }
     };
 
-    // Use "true" for the capture phase to beat CX3 to the event
     document.addEventListener("click", this._onGlobalClickCapture, true);
   },
 
@@ -80,25 +82,28 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     return ["https://cdn.jsdelivr.net/npm/simple-keyboard@latest/build/index.min.js"];
   },
 
+  // ---------- keyboard ----------
   _initKeyboard() {
     if (typeof window.SimpleKeyboard === "undefined") return;
+    if (this.keyboard) return;
 
     this.keyboard = new window.SimpleKeyboard.default({
       onChange: (input) => this._onKeyboardChange(input),
       onKeyPress: (button) => this._onKeyboardKeyPress(button),
       theme: "hg-theme-default hg-layout-default icloud-keyboard",
+      layoutName: "default",
       layout: {
         default: [
           "q w e r t y u i o p",
           "a s d f g h j k l",
           "{shift} z x c v b n m {backspace}",
-          "{numbers} {space} {close}"
+          "{numbers} , . - {space} {close}"
         ],
         shift: [
           "Q W E R T Y U I O P",
           "A S D F G H J K L",
           "{shift} Z X C V B N M {backspace}",
-          "{numbers} {space} {close}"
+          "{numbers} , . - {space} {close}"
         ],
         numbers: ["1 2 3", "4 5 6", "7 8 9", "{abc} 0 {backspace}"]
       },
@@ -111,47 +116,83 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
         "{close}": "Close"
       }
     });
+
+    // If something is already focused, sync keyboard to it
+    if (this._currentActiveInputId) {
+      const el = document.getElementById(this._currentActiveInputId);
+      if (el) this.keyboard.setInput(el.value || "");
+    }
+  },
+
+  _destroyKeyboard() {
+    if (this._kbdTimer) {
+      clearTimeout(this._kbdTimer);
+      this._kbdTimer = null;
+    }
+    if (this.keyboard) {
+      this.keyboard.destroy();
+      this.keyboard = null;
+    }
   },
 
   _onKeyboardChange(input) {
     const inputElement = document.getElementById(this._currentActiveInputId);
-    if (inputElement) {
-      inputElement.value = input;
-      // Trigger input event for any listeners
-      inputElement.dispatchEvent(new Event('input', { bubbles: true }));
-    }
+    if (!inputElement) return;
+
+    inputElement.value = input;
+    inputElement.dispatchEvent(new Event("input", { bubbles: true }));
   },
 
   _onKeyboardKeyPress(button) {
+    if (!this.keyboard) return;
+
     if (button === "{shift}" || button === "{lock}") {
       const currentLayout = this.keyboard.options.layoutName;
       this.keyboard.setOptions({
         layoutName: currentLayout === "default" ? "shift" : "default"
       });
+      return;
     }
-    if (button === "{numbers}") this.keyboard.setOptions({ layoutName: "numbers" });
-    if (button === "{abc}") this.keyboard.setOptions({ layoutName: "default" });
-    if (button === "{close}") this.close();
+
+    if (button === "{numbers}") {
+      this.keyboard.setOptions({ layoutName: "numbers" });
+      return;
+    }
+
+    if (button === "{abc}") {
+      this.keyboard.setOptions({ layoutName: "default" });
+      return;
+    }
+
+    if (button === "{close}") {
+      this.close();
+    }
   },
 
+  // ---------- UI ----------
   _renderPortal() {
     if (!this._portal) return;
+
+    // Toggle portal visibility via class to avoid fragile inline display logic
+    this._portal.classList.toggle("is-open", !!this._visible);
+
+    // Clear content
     this._portal.innerHTML = "";
+
     if (!this._visible) {
-        this._portal.style.display = "none";
-        return;
+      this._destroyKeyboard();
+      return;
     }
-    this._portal.style.display = "block";
 
     const wrap = document.createElement("div");
     wrap.className = "icloudEventAddRoot";
-    
+
     const overlay = document.createElement("div");
     overlay.className = "icloudOverlay";
 
     const modal = document.createElement("div");
     modal.className = "icloudModal";
-    
+
     const title = document.createElement("div");
     title.className = "icloudTitle";
     title.textContent = this._mode === "edit" ? "Edit event" : "Add event";
@@ -170,18 +211,21 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
 
     const cancelBtn = document.createElement("button");
     cancelBtn.className = "icloudBtn cancel";
+    cancelBtn.type = "button";
     cancelBtn.textContent = "Cancel";
     cancelBtn.onclick = () => this.close();
 
     const saveBtn = document.createElement("button");
     saveBtn.className = "icloudBtn save";
+    saveBtn.type = "button";
     saveBtn.textContent = "Save";
     saveBtn.onclick = () => this._submit();
 
     btnBar.append(cancelBtn, saveBtn);
 
     const kbdDiv = document.createElement("div");
-    kbdDiv.className = "simple-keyboard";
+    // Important: add icloud-keyboard class so your CSS targets actually match
+    kbdDiv.className = "simple-keyboard icloud-keyboard";
 
     form.append(titleRow, startRow, endRow, locRow, descRow, btnBar, kbdDiv);
     modal.append(title, form);
@@ -189,25 +233,41 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     wrap.append(overlay);
     this._portal.appendChild(wrap);
 
-    setTimeout(() => this._initKeyboard(), 50);
+    // Init keyboard after the container exists
+    this._kbdTimer = setTimeout(() => {
+      if (this._visible) this._initKeyboard();
+    }, 0);
   },
 
   _row(label, type, id, value) {
     const row = document.createElement("div");
     row.className = "icloudRow";
+
     const l = document.createElement("label");
     l.textContent = label;
+    l.htmlFor = id;
+
     const input = document.createElement("input");
     input.type = type;
     input.id = id;
     input.value = value || "";
-    
-    if (type === "text") {
-        input.onfocus = () => {
-            this._currentActiveInputId = id;
-            if(this.keyboard) this.keyboard.setInput(input.value);
-        };
+
+    // Use keyboard for text fields (and optionally datetime fields too)
+    const keyboardTypes = new Set(["text"]);
+    if (keyboardTypes.has(type)) {
+      input.addEventListener("focus", () => {
+        this._currentActiveInputId = id;
+        if (this.keyboard) this.keyboard.setInput(input.value || "");
+      });
+
+      // Keep keyboard in sync if a physical keyboard is used
+      input.addEventListener("input", (e) => {
+        if (this._currentActiveInputId === id && this.keyboard) {
+          this.keyboard.setInput(e.target.value || "");
+        }
+      });
     }
+
     row.append(l, input);
     return row;
   },
@@ -215,15 +275,26 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
   _rowTextArea(label, id, value) {
     const row = document.createElement("div");
     row.className = "icloudRow";
+
     const l = document.createElement("label");
     l.textContent = label;
+    l.htmlFor = id;
+
     const ta = document.createElement("textarea");
     ta.id = id;
     ta.value = value || "";
-    ta.onfocus = () => {
-        this._currentActiveInputId = id;
-        if(this.keyboard) this.keyboard.setInput(ta.value);
-    };
+
+    ta.addEventListener("focus", () => {
+      this._currentActiveInputId = id;
+      if (this.keyboard) this.keyboard.setInput(ta.value || "");
+    });
+
+    ta.addEventListener("input", (e) => {
+      if (this._currentActiveInputId === id && this.keyboard) {
+        this.keyboard.setInput(e.target.value || "");
+      }
+    });
+
     row.append(l, ta);
     return row;
   },
@@ -231,17 +302,23 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
   _toDateTimeLocal(ms) {
     if (!ms) return "";
     const d = new Date(Number(ms));
+    if (Number.isNaN(d.getTime())) return "";
     const pad = (x) => String(x).padStart(2, "0");
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   },
 
+  // ---------- open/close ----------
   openAddForDate(dateMs) {
     const d = new Date(Number(dateMs));
+    if (Number.isNaN(d.getTime())) return;
+
     d.setHours(8, 0, 0, 0);
     const start = d.getTime();
+
     this._mode = "add";
-    this._current = { title: "", startDate: start, endDate: start + 1800000 };
+    this._current = { title: "", startDate: start, endDate: start + 30 * 60 * 1000 };
     this._visible = true;
+    this._currentActiveInputId = "icloud_title";
     this._renderPortal();
   },
 
@@ -249,83 +326,20 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     this._mode = "edit";
     this._current = eventObj;
     this._visible = true;
+    this._currentActiveInputId = "icloud_title";
     this._renderPortal();
   },
 
   close() {
     this._visible = false;
     this._current = null;
-    if (this.keyboard) {
-        this.keyboard.destroy();
-        this.keyboard = null;
-    }
+    this._currentActiveInputId = null;
     this._renderPortal();
   },
 
+  // ---------- submit (placeholder for now) ----------
   _submit() {
-    // Collect data from IDs and call your node_helper here
-    console.log("Saving to iCloud...");
+    if (this.config.debug) console.log("[ICLOUD-ADD] submit placeholder");
     this.close();
   }
 });
-  
-  // ---------- submit/delete ----------
-  _submit() {
-    const title = document.getElementById("icloud_title")?.value?.trim() || ""
-    const allDay = !!document.getElementById("icloud_allday")?.checked
-    const startVal = document.getElementById("icloud_start")?.value
-    const endVal = document.getElementById("icloud_end")?.value
-    const location = document.getElementById("icloud_loc")?.value || ""
-    const description = document.getElementById("icloud_desc")?.value || ""
-
-    if (!title || !startVal || !endVal) {
-      if (this.config.debug) console.log("[ICLOUD-ADD] missing title/start/end")
-      return
-    }
-
-    const startDate = new Date(startVal).getTime()
-    const endDate = new Date(endVal).getTime()
-
-    const payload = {
-      caldav: this.config.caldav,
-      uid: this._current?.uid || null,
-      title,
-      startDate,
-      endDate,
-      allDay,
-      location,
-      description
-    }
-
-    if (this._mode === "edit" && payload.uid) {
-      if (this.config.debug) console.log("[ICLOUD-ADD] UPDATE payload", payload)
-      this.sendSocketNotification("UPDATE_CALENDAR_EVENT", payload)
-    } else {
-      if (this.config.debug) console.log("[ICLOUD-ADD] ADD payload", payload)
-      this.sendSocketNotification("ADD_CALENDAR_EVENT", payload)
-    }
-
-    this.close()
-  },
-
-  _delete() {
-    const uid = this._current?.uid
-    if (!uid) return
-
-    const payload = { caldav: this.config.caldav, uid }
-    if (this.config.debug) console.log("[ICLOUD-ADD] DELETE payload", payload)
-
-    this.sendSocketNotification("DELETE_CALENDAR_EVENT", payload)
-    this.close()
-  },
-
-  socketNotificationReceived(notification, payload) {
-    if (this.config.debug) console.log("[ICLOUD-ADD] socket:", notification, payload)
-  }
-})
-
-
-
-
-
-
