@@ -108,3 +108,6 @@
   background: #6c757d;
   color: white;
 }
+.icloudOverlay { pointer-events: none; }
+.icloudModal { pointer-events: auto; }
+
