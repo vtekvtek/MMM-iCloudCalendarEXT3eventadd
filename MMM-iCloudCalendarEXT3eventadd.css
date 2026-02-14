@@ -79,3 +79,29 @@
   border: 0;
   margin-right: auto;
 }
+/* Keyboard Styling */
+.icloud-keyboard.simple-keyboard {
+    background-color: rgba(0, 0, 0, 0.8);
+    border-radius: 10px;
+    margin-top: 15px;
+    width: 100%;
+}
+
+.icloud-keyboard .hg-button {
+    height: 40px;
+    background: #333 !important;
+    color: white !important;
+    border: none !important;
+    font-size: 16px;
+}
+
+.icloud-keyboard .hg-button:active {
+    background: #666 !important;
+}
+
+/* Modal adjustments to fit keyboard */
+.icloudModal {
+    width: 600px; /* Wider to fit keyboard */
+    background: #000;
+    border: 1px solid #444;
+}
