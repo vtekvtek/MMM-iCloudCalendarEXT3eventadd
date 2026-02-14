@@ -108,20 +108,3 @@
   background: #6c757d;
   color: white;
 }
-
-/* SimpleKeyboard styling, now matches the container class */
-.icloud-keyboard.simple-keyboard {
-  background-color: transparent !important;
-  margin-top: 20px;
-}
-
-.icloud-keyboard .hg-button {
-  background: #333 !important;
-  color: white !important;
-  border-bottom: 3px solid #000 !important;
-  height: 50px !important;
-}
-
-.icloud-keyboard .hg-button:active {
-  background: #555 !important;
-}
