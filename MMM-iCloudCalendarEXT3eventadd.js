@@ -8,9 +8,10 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
 
   start() {
     this._visible = false
-    this._mode = "add" 
+    this._mode = "add" // add | edit
     this._current = null
 
+    // Create a portal root in <body> so the modal is never behind CalendarExt3
     this._portal = document.getElementById("ICLOUD_EVENTADD_PORTAL")
     if (!this._portal) {
       this._portal = document.createElement("div")
@@ -70,15 +71,14 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     }
   },
 
-  // UPDATED: Listen for KEYBOARD_QUERY from MMM-SimpleKeyboard
+  // ADDED: Listens for text coming back from MMM-Keyboard
   notificationReceived(notification, payload, sender) {
-    if (notification === "KEYBOARD_QUERY") {
-        // SimpleKeyboard sends the current text in payload.result
-        const targetInput = document.getElementById(this._currentActiveInputId);
-        if (targetInput) {
-            targetInput.value = payload.result;
-            targetInput.dispatchEvent(new Event('input'));
-        }
+    if (notification === "KEYBOARD_INPUT") {
+      const targetInput = document.getElementById(payload.key);
+      if (targetInput) {
+        targetInput.value = payload.value;
+        targetInput.dispatchEvent(new Event('input'));
+      }
     }
   },
 
@@ -146,7 +146,7 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     this._portal.appendChild(wrap)
   },
 
-  // UPDATED: Sends notification to MMM-SimpleKeyboard
+  // MODIFIED: Triggers keyboard on tap
   _row(label, type, id, value) {
     const row = document.createElement("div")
     row.className = "icloudRow"
@@ -160,12 +160,7 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
 
     if (type === "text") {
       input.onfocus = () => {
-        this._currentActiveInputId = id; // Store which box we are in
-        this.sendNotification("KEYBOARD", {
-            style: "default",
-            // Pass existing value so keyboard starts with it
-            current_value: input.value 
-        });
+        this.sendNotification("KEYBOARD", { key: id, style: "default" });
       };
     }
     row.append(l, input)
@@ -186,7 +181,7 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     return row
   },
 
-  // UPDATED: Sends notification to MMM-SimpleKeyboard
+  // MODIFIED: Triggers keyboard on tap
   _rowTextArea(label, id, value) {
     const row = document.createElement("div")
     row.className = "icloudRow"
@@ -197,11 +192,7 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     ta.id = id
     ta.value = value || ""
     ta.onfocus = () => {
-      this._currentActiveInputId = id;
-      this.sendNotification("KEYBOARD", {
-          style: "default",
-          current_value: ta.value
-      });
+      this.sendNotification("KEYBOARD", { key: id, style: "default" });
     };
     row.append(l, ta)
     return row
@@ -235,14 +226,12 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
   },
 
   close() {
+    // Hide keyboard when modal closes
     this.sendNotification("KEYBOARD", { mode: "hide" });
     this._visible = false
     this._current = null
     this._renderPortal()
   },
-  
-  // Remember to include your _submit() and _delete() functions here before the closing brace!
-});
   
   // ---------- submit/delete ----------
   _submit() {
@@ -298,5 +287,6 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     if (this.config.debug) console.log("[ICLOUD-ADD] socket:", notification, payload)
   }
 })
+
 
 
