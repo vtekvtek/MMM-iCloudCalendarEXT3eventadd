@@ -12,6 +12,7 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     this._current = null;
     this._currentActiveInputId = null;
 
+    // Create or find the portal div
     this._portal = document.getElementById("ICLOUD_EVENTADD_PORTAL");
     if (!this._portal) {
       this._portal = document.createElement("div");
@@ -21,19 +22,26 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
 
     this._renderPortal();
 
+    // The Global Click Capture Fix
     this._onGlobalClickCapture = (ev) => {
+      // If our modal is already open, don't re-capture
       if (this._visible) return;
+
       const t = ev.target;
       if (!t || !t.closest) return;
+
+      // Only care about clicks inside CalendarExt3
       const insideCX3 = t.closest(".CX3");
       if (!insideCX3) return;
 
+      // 1. Handle clicks on existing events (Edit Mode)
       const eventDom = t.closest(".event");
       if (eventDom && eventDom.dataset && eventDom.dataset.startDate) {
         ev.preventDefault();
-        ev.stopPropagation();
+        ev.stopImmediatePropagation(); // STOP CX3 default behavior
+
         const ds = eventDom.dataset;
-        const payload = {
+        this.openEdit({
           uid: ds.uid || ds.id || null,
           title: (ds.title || "").trim(),
           startDate: ds.startDate,
@@ -42,22 +50,22 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
           description: ds.description || "",
           location: ds.location || "",
           calendarName: ds.calendarName || ""
-        };
-        this.openEdit(payload);
+        });
         return;
       }
 
+      // 2. Handle clicks on empty cells (Add Mode)
       const cellDom = t.closest(".cell");
       if (cellDom && cellDom.dataset) {
-        if (cellDom.dataset.hasEvents === "true") return;
         ev.preventDefault();
-        ev.stopPropagation();
+        ev.stopImmediatePropagation(); // STOP CX3 default behavior
+
         const date = cellDom.dataset.date;
-        if (!date) return;
-        this.openAddForDate(date);
+        if (date) this.openAddForDate(date);
       }
     };
 
+    // Use "true" for the capture phase to beat CX3 to the event
     document.addEventListener("click", this._onGlobalClickCapture, true);
   },
 
@@ -72,7 +80,6 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     return ["https://cdn.jsdelivr.net/npm/simple-keyboard@latest/build/index.min.js"];
   },
 
-  // Initialize the keyboard inside the modal
   _initKeyboard() {
     if (typeof window.SimpleKeyboard === "undefined") return;
 
@@ -110,6 +117,8 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     const inputElement = document.getElementById(this._currentActiveInputId);
     if (inputElement) {
       inputElement.value = input;
+      // Trigger input event for any listeners
+      inputElement.dispatchEvent(new Event('input', { bubbles: true }));
     }
   },
 
@@ -128,10 +137,15 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
   _renderPortal() {
     if (!this._portal) return;
     this._portal.innerHTML = "";
-    if (!this._visible) return;
+    if (!this._visible) {
+        this._portal.style.display = "none";
+        return;
+    }
+    this._portal.style.display = "block";
 
     const wrap = document.createElement("div");
     wrap.className = "icloudEventAddRoot";
+    
     const overlay = document.createElement("div");
     overlay.className = "icloudOverlay";
 
@@ -146,7 +160,6 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     form.className = "icloudForm";
 
     const titleRow = this._row("Title", "text", "icloud_title", this._current?.title || "");
-    const allDayRow = this._rowCheckbox("All day", "icloud_allday", !!this._current?.fullDayEvent);
     const startRow = this._row("Start", "datetime-local", "icloud_start", this._toDateTimeLocal(this._current?.startDate));
     const endRow = this._row("End", "datetime-local", "icloud_end", this._toDateTimeLocal(this._current?.endDate));
     const locRow = this._row("Location", "text", "icloud_loc", this._current?.location || "");
@@ -167,17 +180,15 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
 
     btnBar.append(cancelBtn, saveBtn);
 
-    // Create Keyboard Div
     const kbdDiv = document.createElement("div");
     kbdDiv.className = "simple-keyboard";
 
-    form.append(titleRow, allDayRow, startRow, endRow, locRow, descRow, btnBar, kbdDiv);
+    form.append(titleRow, startRow, endRow, locRow, descRow, btnBar, kbdDiv);
     modal.append(title, form);
     overlay.append(modal);
     wrap.append(overlay);
     this._portal.appendChild(wrap);
 
-    // Init keyboard after it's in the DOM
     setTimeout(() => this._initKeyboard(), 50);
   },
 
@@ -197,7 +208,6 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
             if(this.keyboard) this.keyboard.setInput(input.value);
         };
     }
-    
     row.append(l, input);
     return row;
   },
@@ -218,51 +228,44 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     return row;
   },
 
-  // ... (keep your existing _rowCheckbox, _toDateTimeLocal, open methods, etc.) ...
-  
-  _rowCheckbox(label, id, checked) {
-    const row = document.createElement("div")
-    row.className = "icloudRow"
-    const l = document.createElement("label")
-    l.textContent = label
-    l.htmlFor = id
-    const input = document.createElement("input")
-    input.type = "checkbox"
-    input.id = id
-    input.checked = !!checked
-    row.append(l, input)
-    return row
-  },
-
   _toDateTimeLocal(ms) {
-    if (!ms) return ""
-    const d = new Date(Number(ms))
-    const pad = (x) => String(x).padStart(2, "0")
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+    if (!ms) return "";
+    const d = new Date(Number(ms));
+    const pad = (x) => String(x).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   },
 
   openAddForDate(dateMs) {
-    const d = new Date(Number(dateMs))
-    d.setHours(8, 0, 0, 0)
-    const start = d.getTime()
-    const end = start + 30 * 60 * 1000
-    this._mode = "add"
-    this._current = { title: "", startDate: start, endDate: end, fullDayEvent: false, description: "", location: "" }
-    this._visible = true
-    this._renderPortal()
+    const d = new Date(Number(dateMs));
+    d.setHours(8, 0, 0, 0);
+    const start = d.getTime();
+    this._mode = "add";
+    this._current = { title: "", startDate: start, endDate: start + 1800000 };
+    this._visible = true;
+    this._renderPortal();
   },
 
   openEdit(eventObj) {
-    this._mode = "edit"
-    this._current = eventObj
-    this._visible = true
-    this._renderPortal()
+    this._mode = "edit";
+    this._current = eventObj;
+    this._visible = true;
+    this._renderPortal();
   },
 
   close() {
-    this._visible = false
-    this._current = null
-    this._renderPortal()
+    this._visible = false;
+    this._current = null;
+    if (this.keyboard) {
+        this.keyboard.destroy();
+        this.keyboard = null;
+    }
+    this._renderPortal();
+  },
+
+  _submit() {
+    // Collect data from IDs and call your node_helper here
+    console.log("Saving to iCloud...");
+    this.close();
   }
 });
   
@@ -320,6 +323,7 @@ Module.register("MMM-iCloudCalendarEXT3eventadd", {
     if (this.config.debug) console.log("[ICLOUD-ADD] socket:", notification, payload)
   }
 })
+
 
 
 
