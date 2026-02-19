@@ -4,67 +4,37 @@
 
 Add, edit, delete iCloud CalDAV events directly from MMM-CalendarExt3.
 
+THIS IS A WORK IN PROGRESS!!! DO NOT USE THIS MODULE!!!
 
 
 \## Install
-
-
-
+```js
 cd ~/MagicMirror/modules
-
 git clone https://github.com/vtekvtek/MMM-iCloudCalendarEXT3eventadd.git
-
 cd MMM-iCloudCalendarEXT3eventadd
-
 npm install
-
-
+```
 
 \## Environment Variables
-
-
-
+```js
 ICLOUD\_USERNAME=your@email.com
-
 ICLOUD\_PASSWORD=app-specific-password
-
-
-
-If using pm2:
-
-pm2 set MagicMirror:ICLOUD\_USERNAME "your@email.com"
-
-pm2 set MagicMirror:ICLOUD\_PASSWORD "xxxx-xxxx-xxxx-xxxx"
-
-pm2 restart MagicMirror
-
-
+```
 
 \## Config
-
-
-
+```js
 {
-
-&nbsp; module: "MMM-iCloudCalendarEXT3eventadd",
-
-&nbsp; config: {
-
-&nbsp;   caldav: {
-
-&nbsp;     envPrefix: "ICLOUD\_",
-
-&nbsp;     serverUrl: "https://caldav.icloud.com",
-
-&nbsp;     calendarDisplayName: "Family",
-
-&nbsp;     providerIcsUrl: "http://127.0.0.1:8888/CALDAV/ICLOUD\_Family.ics"
-
-&nbsp;   }
-
-&nbsp; }
-
+module: "MMM-iCloudCalendarEXT3eventadd",
+config: {
+caldav: {
+     envPrefix: "ICLOUD_",
+     serverUrl: "https://caldav.icloud.com",
+     calendarDisplayName: "Family",
+     providerIcsUrl: "http://127.0.0.1:8888/CALDAV/ICLOUD_Family.ics"
+   }
+ }
 }
+```
 
 
 
